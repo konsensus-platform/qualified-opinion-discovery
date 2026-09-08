@@ -1,0 +1,35 @@
+{
+  "id": "open-forum-es",
+  "revision": 1,
+  "name": "Foro Abierto — instancia sintética en español",
+  "locale": "es",
+  "qualificationLabel": "Título en derecho confirmado por una persona revisora",
+  "crawler": {
+    "userAgent": "OpinionDiscovery/0.1",
+    "allowedHosts": ["opiniones.example.test"],
+    "maxResponseBytes": 1000000,
+    "timeoutMs": 10000,
+    "maxRedirects": 3
+  },
+  "questions": [
+    {
+      "id": "audiencias-publicas",
+      "text": "¿Debe una comunidad ficticia celebrar una audiencia pública antes de cambiar sus normas?",
+      "candidateTerms": ["audiencia pública", "normas comunitarias"],
+      "choices": [
+        {
+          "id": "20000000-0000-4000-8000-000000000001",
+          "slug": "audiencia-obligatoria",
+          "label": "Audiencia obligatoria",
+          "mockKeywords": ["la audiencia debe ser obligatoria"]
+        },
+        {
+          "id": "20000000-0000-4000-8000-000000000002",
+          "slug": "audiencia-opcional",
+          "label": "Audiencia opcional",
+          "mockKeywords": ["la audiencia debe ser opcional"]
+        }
+      ]
+    }
+  ]
+}

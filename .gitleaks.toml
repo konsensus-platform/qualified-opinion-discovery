@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Installed dependencies and local generated artifacts are outside the published source tree"
+paths = ['''(^|/)(node_modules|\.git|\.data|artifacts|coverage|dist)/''', '''bun\.lock$''']

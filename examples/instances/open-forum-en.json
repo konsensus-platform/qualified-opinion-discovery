@@ -1,0 +1,41 @@
+{
+  "id": "open-forum-en",
+  "revision": 1,
+  "name": "Open Forum — synthetic English instance",
+  "locale": "en",
+  "qualificationLabel": "Law degree confirmed by a reviewer",
+  "crawler": {
+    "userAgent": "OpinionDiscovery/0.1",
+    "allowedHosts": ["opinions.example.test"],
+    "maxResponseBytes": 1000000,
+    "timeoutMs": 10000,
+    "maxRedirects": 3
+  },
+  "questions": [
+    {
+      "id": "public-hearings",
+      "text": "Should a fictional community hold a public hearing before changing its rules?",
+      "candidateTerms": ["public hearing", "community rules"],
+      "choices": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "slug": "hearing-required",
+          "label": "Require a hearing",
+          "mockKeywords": ["a hearing should be required"]
+        },
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "slug": "hearing-optional",
+          "label": "Make hearings optional",
+          "mockKeywords": ["a hearing should be optional"]
+        },
+        {
+          "id": "10000000-0000-4000-8000-000000000003",
+          "slug": "case-dependent",
+          "label": "Depends on the proposal",
+          "mockKeywords": ["depends on the proposal"]
+        }
+      ]
+    }
+  ]
+}

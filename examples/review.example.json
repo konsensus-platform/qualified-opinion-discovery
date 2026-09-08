@@ -1,0 +1,10 @@
+{
+  "statementId": "00000000-0000-4000-8000-000000000001",
+  "expectedRevision": 0,
+  "decision": "approved",
+  "choiceId": "10000000-0000-4000-8000-000000000001",
+  "reviewer": "demo-reviewer",
+  "reason": "Synthetic example only; replace with an actual review and attribution rationale.",
+  "subjectLabel": "Fictional Author One",
+  "qualificationReference": "fixture:fictional-law-degree-one"
+}

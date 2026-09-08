@@ -1,0 +1,14 @@
+{
+  "name": "@discovery/crawler",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@discovery/config": "workspace:*",
+    "cheerio": "1.2.0",
+    "ipaddr.js": "2.2.0",
+    "robots-parser": "3.0.1"
+  }
+}

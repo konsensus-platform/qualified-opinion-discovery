@@ -1,0 +1,9 @@
+.git
+node_modules
+.data
+artifacts
+dist
+coverage
+*.sqlite*
+.env*
+.DS_Store

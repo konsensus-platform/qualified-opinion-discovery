@@ -1,0 +1,97 @@
+{
+  "schema": "opinion-discovery-extraction-provenance-v1",
+  "upstream": {
+    "repository": "https://github.com/konsensus-platform/hukukca",
+    "commit": "cbc707cd9ba9e57b43530bb1ea4c4c7d9a36d9cb"
+  },
+  "edition": "country-agnostic discovery backend",
+  "historyPolicy": "Independent initial root; ordinary descendant commits are expected. No copied upstream Git history.",
+  "runtimeDependenciesOnUpstream": false,
+  "files": [
+    {
+      "source": "packages/crawler/src/extract.ts",
+      "destination": "packages/crawler/src/extract.ts",
+      "sourceSha256": "ae317db08b20a9ade6dd456c757895b71e9929f6782613b5adc44a00e00d8d5f",
+      "treatment": "retained HTML extraction with complete language-tag validation"
+    },
+    {
+      "source": "packages/crawler/src/crawler.ts",
+      "destination": "packages/crawler/src/crawler.ts",
+      "sourceSha256": "ac2b73bbd2b67553e16126ad7968225cf6760f07f977ed36e7557244762f0fcd",
+      "treatment": "adapted to explicit bounded HTTPS transport and instance policy"
+    },
+    {
+      "source": "packages/crawler/src/robots.ts",
+      "destination": "packages/crawler/src/robots.ts",
+      "sourceSha256": "67ec5f89af2a86962be903850b1ffd7e227e6f271be43f2cf3f4f1de9ee1dd73",
+      "treatment": "replaced fail-open scaffold with agent-aware robots policy"
+    },
+    {
+      "source": "packages/ai/src/schemas.ts",
+      "destination": "packages/ai/src/schemas.ts",
+      "sourceSha256": "7e75f6b9153620ee433d4dadbe5cd2c8c6a9b828b522ba975b85b9a574198706",
+      "treatment": "adapted neutral input and strict mandatory-review output"
+    },
+    {
+      "source": "packages/ai/src/classify.ts",
+      "destination": "packages/ai/src/classify.ts",
+      "sourceSha256": "670a337d610977eff5669091046c3663de79f86321f28c32da62367660426e15",
+      "treatment": "explicit classifier adapter; no global provider flag"
+    },
+    {
+      "source": "packages/ai/src/mockClassifier.ts",
+      "destination": "packages/ai/src/mockClassifier.ts",
+      "sourceSha256": "b73cde9f184e10f6a855a0662c72a8dae7afc27775d5e785b74319c734593be0",
+      "treatment": "profile-owned keywords, ambiguity abstention, neutral explanations"
+    },
+    {
+      "source": "packages/ai/src/prompts/classification-v1.ts",
+      "destination": "packages/ai/src/prompts/classification-v1.ts",
+      "sourceSha256": "c14c33a4fe985d443f935344f8165db5a0c86259054c9d6e000a50dc104028d2",
+      "treatment": "adapted public prompt policy"
+    },
+    {
+      "source": "apps/worker/src/index.ts",
+      "destination": "apps/worker/src/index.ts",
+      "sourceSha256": "22979a468bdd5bcc00e11424f0bcf4cd77d1b87c14e8347313e40dea16a32bd2",
+      "treatment": "adapted discovery job flow into importable handler"
+    },
+    {
+      "source": "packages/db/src/schema.ts",
+      "destination": "packages/store/src/migrations/001-initial.sql",
+      "sourceSha256": "44e79e558923447cc80c7cd0e0eebc81b1f5a4f751b2b5f7161069485f41abd2",
+      "treatment": "source/capture/job/statement/classification concepts adapted into new focused SQLite schema"
+    },
+    {
+      "source": "LICENSE",
+      "destination": "LICENSE",
+      "sourceSha256": "37f6b7d766eb6791edb89211111a48e3e12ff5cb06578299019bb009fd5be44c",
+      "treatment": "copied Apache-2.0 text"
+    },
+    {
+      "source": "LICENSE-DATA.md",
+      "destination": "LICENSE-DATA.md",
+      "sourceSha256": "1d6e378f04befe2f55c689a820c4726cdfe97c2a1ede3719c5d3cee5222f90f3",
+      "treatment": "copied documentation and data license notice"
+    }
+  ],
+  "newComponents": [
+    "packages/config",
+    "packages/crawler/src/transport.ts",
+    "packages/store/src",
+    "apps/worker/src/cli.ts",
+    "apps/worker/src/demo.ts",
+    "tests",
+    "fixtures",
+    "examples",
+    "scripts"
+  ],
+  "excluded": [
+    "upstream production data and media",
+    "auth and voting services",
+    "cloud deployment configuration and trust roots",
+    "upstream hardening workflows",
+    "upstream Git history"
+  ],
+  "limitations": "Provenance describes source derivation, not a signed build attestation. Per-release file manifests are generated separately."
+}
