@@ -1,0 +1,22 @@
+name: Check standalone discovery
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build pinned Bun environment
+        run: docker build --platform linux/amd64 -t opinion-discovery:ci .
+      - name: Typecheck, tests and publication boundary without network
+        run: docker run --rm --network none --platform linux/amd64 opinion-discovery:ci bun run check
+      - name: Run synthetic demo without network
+        run: docker run --rm --network none --platform linux/amd64 opinion-discovery:ci bun run demo
