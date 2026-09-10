@@ -20,6 +20,32 @@ export type DiscoveryResult = {
     output: ClassificationOutput;
   };
 };
+export type ResearchRunSummary = {
+  id: string;
+  instanceId: string;
+  profileRevision: number;
+  questionId: string;
+  status: "finished" | "failed";
+  modelProvider: string;
+  modelName: string;
+  promptTemplateId: string;
+  promptTemplateVersion: string;
+  startedAt: string;
+  finishedAt: string;
+  error: string | null;
+  findingCount: number;
+};
+export type StoredResearchFinding = {
+  id: string;
+  researchRunId: string;
+  findingIndex: number;
+  url: string;
+  title: string;
+  claimedAuthorLabel: string;
+  quotedStatement: string;
+  relevance: string;
+  fetchedByRuntime: boolean;
+};
 const reviewBase = {
   statementId: z.string().uuid(),
   expectedRevision: z.number().int().nonnegative(),

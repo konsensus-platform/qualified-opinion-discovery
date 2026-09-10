@@ -6,6 +6,8 @@ Use Bun 1.3.14 and install from `bun.lock` with `bun install --frozen-lockfile`.
 
 The tests exercise the actual SQLite adapter and CLI, and inject source responses at the transport boundary. All source content is synthetic. Add behavior tests at those boundaries for consequential changes.
 
+Research runs are exercised the same way. `replayResearchModel` replays a checked-in script instead of calling a provider, and `fixtureSearchProvider` answers from a checked-in index, so the whole stage runs offline with no API key. When changing the research prompt or the shape of a transcript, update `fixtures/research/` alongside it and keep the fixture quotes verbatim against `fixtures/pages/` — the runtime drops a finding whose quote is absent from the text it retrieved, so a stale fixture shows up as a dropped finding rather than a passing test.
+
 Increase the instance revision when changing any saved question, answer, locale, qualification label or crawl policy. A new database schema version requires an explicit migration path; do not edit a previously released migration to migrate existing user databases.
 
 ## Publication provenance versus release snapshots

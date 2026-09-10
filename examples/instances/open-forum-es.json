@@ -11,6 +11,19 @@
     "timeoutMs": 10000,
     "maxRedirects": 3
   },
+  "research": {
+    "crawler": {
+      "userAgent": "OpinionDiscovery/0.1",
+      "allowedHosts": ["opiniones.example.test"],
+      "maxResponseBytes": 1000000,
+      "timeoutMs": 10000,
+      "maxRedirects": 3
+    },
+    "maxSteps": 6,
+    "maxSearches": 4,
+    "maxFetches": 4,
+    "searchResultLimit": 5
+  },
   "questions": [
     {
       "id": "audiencias-publicas",

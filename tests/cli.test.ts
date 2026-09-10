@@ -41,6 +41,63 @@ test("offline demo persists both profiles and CLI reopens its results", () => {
   }
 });
 
+test("CLI runs research offline and reopens the stored transcript", () => {
+  const dir = mkdtempSync(join(tmpdir(), "discovery-cli-research-"));
+  const path = join(dir, "research.sqlite");
+  const cli = (...args: string[]) =>
+    Bun.spawnSync([process.execPath, "apps/worker/src/cli.ts", ...args]);
+  try {
+    const research = cli(
+      "research",
+      "--db",
+      path,
+      "--profile",
+      "examples/instances/open-forum-en.json",
+      "--question",
+      "public-hearings",
+      "--replay",
+      "fixtures/research/open-forum-en.replay.json",
+      "--search-index",
+      "fixtures/research/open-forum-en.search.json",
+    );
+    expect(research.exitCode).toBe(0);
+    const outcome = JSON.parse(research.stdout.toString());
+    expect(outcome.status).toBe("finished");
+    expect(outcome.findings).toHaveLength(2);
+
+    const runs = cli("research-runs", "--db", path);
+    expect(JSON.parse(runs.stdout.toString())[0]).toMatchObject({
+      id: outcome.runId,
+      modelProvider: "replay-fixture",
+      promptTemplateId: "public-opinion-research",
+      findingCount: 2,
+    });
+
+    // A reader with only the database can recover what was asked and answered.
+    const shown = cli("research-show", "--db", path, "--run", outcome.runId);
+    const transcript = JSON.parse(shown.stdout.toString());
+    expect(transcript.prompt.user).toContain("public-hearings");
+    expect(transcript.steps).toHaveLength(3);
+    expect(transcript.output.findings).toHaveLength(2);
+
+    const fetchable = outcome.findings.find(
+      (finding: { url: string }) =>
+        finding.url === "https://opinions.example.test/statement",
+    );
+    const queued = cli(
+      "enqueue-finding",
+      "--db",
+      path,
+      "--finding",
+      fetchable.id,
+    );
+    expect(queued.exitCode).toBe(0);
+    expect(JSON.parse(queued.stdout.toString()).jobId).toBeString();
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
 test("CLI rejects unknown commands and missing required arguments", () => {
   const invalid = Bun.spawnSync([
     process.execPath,

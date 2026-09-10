@@ -76,6 +76,8 @@
     }
   ],
   "newComponents": [
+    "apps/worker/src/research.ts",
+    "packages/research",
     "packages/config",
     "packages/crawler/src/transport.ts",
     "packages/store/src",
@@ -93,5 +95,5 @@
     "upstream hardening workflows",
     "upstream Git history"
   ],
-  "limitations": "Provenance describes source derivation, not a signed build attestation. Per-release file manifests are generated separately."
+  "limitations": "Provenance describes source derivation, not a signed build attestation. Per-release file manifests are generated separately. The research stage is original to this repository: upstream found candidate sources by hand, by prompting a coding agent, and no upstream file corresponds to it."
 }

@@ -1,0 +1,27 @@
+[
+  {
+    "url": "https://opinions.example.test/statement",
+    "title": "Fictional public hearing statement",
+    "snippet": "A fictional author argues that a hearing should be required before community rules change.",
+    "keywords": [
+      "public",
+      "hearing",
+      "community",
+      "rules",
+      "statement",
+      "opinion"
+    ]
+  },
+  {
+    "url": "https://directory.example.test/roster/fictional-author-two",
+    "title": "Roster entry for Fictional Author Two",
+    "snippet": "Directory listing that quotes a short remark about public hearings.",
+    "keywords": ["public", "hearing", "roster", "directory", "opinion"]
+  },
+  {
+    "url": "https://opinions.example.test/unrelated",
+    "title": "Unrelated fictional page",
+    "snippet": "A page with no bearing on the question.",
+    "keywords": ["unrelated", "fictional"]
+  }
+]

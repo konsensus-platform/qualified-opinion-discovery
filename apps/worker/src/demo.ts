@@ -5,8 +5,17 @@ import { parseArgs } from "node:util";
 import { loadProfile } from "@discovery/config";
 import { SqliteDiscoveryStore } from "@discovery/store";
 import { classificationOutputSchema } from "@discovery/ai";
+import {
+  fixtureSearchProvider,
+  loadReplayScript,
+  replayResearchModel,
+} from "@discovery/research";
 import { fixtureTransport } from "../../../fixtures/transport";
 import { processCrawlJob } from "./index";
+import { runResearchJob } from "./research";
+
+const fixture = (path: string) =>
+  new URL("../../../" + path, import.meta.url).pathname;
 
 async function main() {
   const { values } = parseArgs({
@@ -30,12 +39,53 @@ async function main() {
         .pathname,
     );
     const { transport, calls } = fixtureTransport();
-    const jobs = [
-      store.enqueue(
-        en,
-        "https://opinions.example.test/statement",
-        en.questions[0]!.id,
+
+    // Stage one: research. A recorded model script drives search and fetch calls
+    // that this runtime executes, and the whole exchange is stored. Nothing is
+    // queued yet and nothing counts yet.
+    const research = await runResearchJob(en, en.questions[0]!.id, {
+      store,
+      model: replayResearchModel(
+        await loadReplayScript(
+          fixture("fixtures/research/open-forum-en.replay.json"),
+        ),
       ),
+      search: fixtureSearchProvider(
+        await Bun.file(
+          fixture("fixtures/research/open-forum-en.search.json"),
+        ).json(),
+      ),
+      transport,
+    });
+    if (research.status !== "finished")
+      throw new Error("Synthetic research run failed: " + research.error);
+
+    // Stage two: an operator turns findings into ordinary crawl jobs. A finding
+    // naming a host outside this instance's capture policy is refused here, so
+    // the refusal is visible rather than silent.
+    const promoted: {
+      url: string;
+      jobId: string | null;
+      refused: string | null;
+    }[] = [];
+    for (const finding of research.findings) {
+      try {
+        promoted.push({
+          url: finding.url,
+          jobId: store.enqueueFromFinding(finding.id),
+          refused: null,
+        });
+      } catch (error) {
+        promoted.push({
+          url: finding.url,
+          jobId: null,
+          refused: error instanceof Error ? error.message : "Refused",
+        });
+      }
+    }
+
+    const jobs = [
+      ...promoted.flatMap((entry) => (entry.jobId ? [entry.jobId] : [])),
       store.enqueue(
         en,
         "https://opinions.example.test/unrelated",
@@ -84,6 +134,16 @@ async function main() {
           networkRequests: 0,
           fixtureRequests: calls.length,
           persistedDatabase: values.db ?? null,
+          research: {
+            runId: research.runId,
+            steps: research.steps,
+            accepted: research.accepted,
+            dropped: research.dropped,
+            promoted,
+            // The stored run holds the exact prompt, every model exchange and
+            // the final output. Read it with: discovery research-show --run ID
+            transcriptStoredAs: "research_runs." + research.runId,
+          },
           jobs: jobs.map((id) => store.inspectJob(id)),
           beforeReview,
           afterReview: {

@@ -12,11 +12,17 @@ import {
 import { checkedUrl } from "@discovery/crawler";
 import { validateClassification } from "@discovery/ai";
 import {
+  researchTranscriptSchema,
+  type ResearchTranscript,
+} from "@discovery/research";
+import {
   reviewInputSchema,
   type DiscoveryResult,
   type DiscoveryStore,
   type Job,
+  type ResearchRunSummary,
   type ReviewInput,
+  type StoredResearchFinding,
 } from "./types";
 
 type JobRow = {
@@ -65,7 +71,7 @@ export class SqliteDiscoveryStore implements DiscoveryStore {
               user_version: number;
             }
           ).user_version;
-          if (version > 1)
+          if (version > 2)
             throw new Error("Database schema is newer than this application");
           if (version === 0) {
             this.db.exec(
@@ -74,8 +80,16 @@ export class SqliteDiscoveryStore implements DiscoveryStore {
                 "utf8",
               ),
             );
-            this.db.exec("PRAGMA user_version = 1");
           }
+          if (version <= 1) {
+            this.db.exec(
+              readFileSync(
+                new URL("./migrations/002-research.sql", import.meta.url),
+                "utf8",
+              ),
+            );
+          }
+          this.db.exec("PRAGMA user_version = 2");
         })
         .immediate();
     } catch (error) {
@@ -108,22 +122,32 @@ export class SqliteDiscoveryStore implements DiscoveryStore {
           this.db
             .query("INSERT INTO profiles VALUES (?, ?, ?)")
             .run(profile.id, profile.revision, profileJson);
-        const id = randomUUID();
-        this.db
-          .query(`INSERT INTO crawl_jobs
-        (id, instance_id, profile_revision, question_id, seed_url, status, created_at)
-        VALUES (?, ?, ?, ?, ?, 'queued', ?)`)
-          .run(
-            id,
-            profile.id,
-            profile.revision,
-            questionId,
-            url,
-            new Date().toISOString(),
-          );
-        return id;
+        return this.insertJob(profile, url, questionId, null);
       })
       .immediate();
+  }
+
+  private insertJob(
+    profile: InstanceProfile,
+    url: string,
+    questionId: string,
+    researchFindingId: string | null,
+  ): string {
+    const id = randomUUID();
+    this.db
+      .query(`INSERT INTO crawl_jobs
+      (id, instance_id, profile_revision, question_id, seed_url, status, created_at, research_finding_id)
+      VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`)
+      .run(
+        id,
+        profile.id,
+        profile.revision,
+        questionId,
+        url,
+        new Date().toISOString(),
+        researchFindingId,
+      );
+    return id;
   }
 
   getJob(id: string): Job {
@@ -376,6 +400,169 @@ export class SqliteDiscoveryStore implements DiscoveryStore {
       .all(instanceId, profileRevision, questionId) as ChoiceCount[];
   }
 
+  /**
+   * Persists one research run: the whole transcript, plus the findings this
+   * runtime accepted, in the order the model reported them. Nothing here is a
+   * proof — an operator with database access can write any row. What it gives a
+   * later reader is the exact prompt, every provider exchange and the final
+   * output as recorded at the time.
+   */
+  saveResearchRun(input: ResearchTranscript): string {
+    const transcript = researchTranscriptSchema.parse(input);
+    return this.db
+      .transaction(() => {
+        const profileRow = this.db
+          .query(
+            "SELECT profile_json FROM profiles WHERE instance_id = ? AND revision = ?",
+          )
+          .get(transcript.instanceId, transcript.profileRevision) as {
+          profile_json: string;
+        } | null;
+        if (!profileRow)
+          throw new Error(
+            "Save the instance profile before its research runs; enqueue a job or call saveProfile first",
+          );
+        const profile = parseProfile(JSON.parse(profileRow.profile_json));
+        getQuestion(profile, transcript.questionId);
+        this.db
+          .query(
+            "INSERT INTO research_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            transcript.runId,
+            transcript.instanceId,
+            transcript.profileRevision,
+            transcript.questionId,
+            transcript.status,
+            transcript.model.provider,
+            transcript.model.name,
+            transcript.promptTemplate.id,
+            transcript.promptTemplate.version,
+            transcript.prompt.system,
+            transcript.prompt.user,
+            JSON.stringify(transcript),
+            transcript.startedAt,
+            transcript.finishedAt,
+            transcript.error,
+          );
+        transcript.acceptedFindings.forEach((finding, index) => {
+          this.db
+            .query(
+              "INSERT INTO research_findings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .run(
+              randomUUID(),
+              transcript.runId,
+              index,
+              finding.url,
+              finding.title,
+              finding.claimedAuthorLabel,
+              finding.quotedStatement,
+              finding.relevance,
+              finding.fetchedByRuntime ? 1 : 0,
+            );
+        });
+        return transcript.runId;
+      })
+      .immediate();
+  }
+
+  /** Registers a profile revision without queueing work, for research-first flows. */
+  saveProfile(input: InstanceProfile): void {
+    const profile = parseProfile(input);
+    const profileJson = JSON.stringify(profile);
+    this.db
+      .transaction(() => {
+        const existing = this.db
+          .query(
+            "SELECT profile_json FROM profiles WHERE instance_id = ? AND revision = ?",
+          )
+          .get(profile.id, profile.revision) as { profile_json: string } | null;
+        if (existing && existing.profile_json !== profileJson)
+          throw new Error(
+            "An instance revision is immutable; increment the profile revision",
+          );
+        if (!existing)
+          this.db
+            .query("INSERT INTO profiles VALUES (?, ?, ?)")
+            .run(profile.id, profile.revision, profileJson);
+      })
+      .immediate();
+  }
+
+  listResearchRuns(): ResearchRunSummary[] {
+    return this.db
+      .query(`SELECT id, instance_id AS instanceId, profile_revision AS profileRevision,
+      question_id AS questionId, status, model_provider AS modelProvider,
+      model_name AS modelName, prompt_template_id AS promptTemplateId,
+      prompt_template_version AS promptTemplateVersion, started_at AS startedAt,
+      finished_at AS finishedAt, error,
+      (SELECT COUNT(*) FROM research_findings f WHERE f.research_run_id = research_runs.id) AS findingCount
+      FROM research_runs ORDER BY started_at, id`)
+      .all() as ResearchRunSummary[];
+  }
+
+  getResearchRun(id: string): ResearchTranscript {
+    const row = this.db
+      .query("SELECT transcript_json FROM research_runs WHERE id = ?")
+      .get(id) as { transcript_json: string } | null;
+    if (!row) throw new Error("Research run does not exist");
+    return researchTranscriptSchema.parse(JSON.parse(row.transcript_json));
+  }
+
+  listResearchFindings(runId: string): StoredResearchFinding[] {
+    return this.db
+      .query(`SELECT id, research_run_id AS researchRunId, finding_index AS findingIndex,
+      url, title, claimed_author_label AS claimedAuthorLabel,
+      quoted_statement AS quotedStatement, relevance,
+      fetched_by_runtime AS fetchedByRuntime FROM research_findings
+      WHERE research_run_id = ? ORDER BY finding_index`)
+      .all(runId)
+      .map((row) => {
+        const finding = row as StoredResearchFinding & {
+          fetchedByRuntime: number | boolean;
+        };
+        return {
+          ...finding,
+          fetchedByRuntime: Boolean(finding.fetchedByRuntime),
+        };
+      });
+  }
+
+  /**
+   * Queues the ordinary crawl for one finding. The finding only proposes a URL:
+   * it is still checked against the instance's own capture policy, still
+   * crawled, classified and held for human review like any other seed.
+   */
+  enqueueFromFinding(findingId: string): string {
+    return this.db
+      .transaction(() => {
+        const finding = this.db
+          .query(`SELECT f.url, r.instance_id AS instanceId, r.profile_revision AS profileRevision,
+          r.question_id AS questionId, p.profile_json AS profileJson
+          FROM research_findings f JOIN research_runs r ON r.id = f.research_run_id
+          JOIN profiles p ON p.instance_id = r.instance_id AND p.revision = r.profile_revision
+          WHERE f.id = ?`)
+          .get(findingId) as {
+          url: string;
+          questionId: string;
+          profileJson: string;
+        } | null;
+        if (!finding) throw new Error("Research finding does not exist");
+        const existing = this.db
+          .query("SELECT id FROM crawl_jobs WHERE research_finding_id = ?")
+          .get(findingId) as { id: string } | null;
+        if (existing)
+          throw new Error(
+            "This finding already has a crawl job: " + existing.id,
+          );
+        const profile = parseProfile(JSON.parse(finding.profileJson));
+        const url = checkedUrl(finding.url, profile.crawler).href;
+        return this.insertJob(profile, url, finding.questionId, findingId);
+      })
+      .immediate();
+  }
+
   // Operator inspection, not a provenance proof or an independent verification.
   inspectJob(id: string) {
     const job = this.getJob(id);
@@ -384,6 +571,22 @@ export class SqliteDiscoveryStore implements DiscoveryStore {
       r.outcome, r.reason FROM sources s JOIN source_captures c ON c.source_id = s.id
       JOIN crawl_results r ON r.crawl_job_id = s.crawl_job_id WHERE s.crawl_job_id = ?`)
       .get(id);
-    return { job, source };
+    const research = this.db
+      .query(`SELECT f.id AS findingId, f.research_run_id AS researchRunId,
+      f.claimed_author_label AS claimedAuthorLabel, f.fetched_by_runtime AS fetchedByRuntime
+      FROM crawl_jobs j JOIN research_findings f ON f.id = j.research_finding_id WHERE j.id = ?`)
+      .get(id) as {
+      findingId: string;
+      researchRunId: string;
+      claimedAuthorLabel: string;
+      fetchedByRuntime: number;
+    } | null;
+    return {
+      job,
+      source,
+      research: research
+        ? { ...research, fetchedByRuntime: Boolean(research.fetchedByRuntime) }
+        : null,
+    };
   }
 }

@@ -55,6 +55,19 @@ export const crawlerPolicySchema = z
   })
   .strict();
 
+// Research runs fetch pages an instance has not seen before, so they carry their
+// own crawler policy: the hosts this instance is willing to open during research
+// are listed separately from the hosts a statement may be captured from.
+export const researchPolicySchema = z
+  .object({
+    crawler: crawlerPolicySchema,
+    maxSteps: z.number().int().min(1).max(20).default(8),
+    maxSearches: z.number().int().min(1).max(50).default(10),
+    maxFetches: z.number().int().min(1).max(50).default(10),
+    searchResultLimit: z.number().int().min(1).max(25).default(5),
+  })
+  .strict();
+
 export const instanceProfileSchema = z
   .object({
     id: identifier,
@@ -72,6 +85,7 @@ export const instanceProfileSchema = z
       }, "Use a valid BCP 47 locale"),
     qualificationLabel: nonempty,
     crawler: crawlerPolicySchema,
+    research: researchPolicySchema.optional(),
     questions: z.array(questionSchema).min(1).max(100),
   })
   .strict()
@@ -90,6 +104,7 @@ export const instanceProfileSchema = z
 export type InstanceProfile = z.infer<typeof instanceProfileSchema>;
 export type Question = z.infer<typeof questionSchema>;
 export type CrawlerPolicy = z.infer<typeof crawlerPolicySchema>;
+export type ResearchPolicy = z.infer<typeof researchPolicySchema>;
 
 export function parseProfile(value: unknown): InstanceProfile {
   return instanceProfileSchema.parse(value);
@@ -97,6 +112,12 @@ export function parseProfile(value: unknown): InstanceProfile {
 
 export async function loadProfile(path: string): Promise<InstanceProfile> {
   return parseProfile(await Bun.file(path).json());
+}
+
+export function getResearchPolicy(profile: InstanceProfile): ResearchPolicy {
+  if (!profile.research)
+    throw new Error("This instance profile does not configure research");
+  return profile.research;
 }
 
 export function getQuestion(profile: InstanceProfile, id: string): Question {

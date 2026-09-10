@@ -1,17 +1,13 @@
 {
-  "name": "@discovery/worker",
+  "name": "@discovery/research",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
+  "exports": { ".": "./src/index.ts" },
   "dependencies": {
-    "@discovery/ai": "workspace:*",
     "@discovery/config": "workspace:*",
     "@discovery/crawler": "workspace:*",
-    "@discovery/research": "workspace:*",
-    "@discovery/store": "workspace:*"
+    "zod": "3.25.76"
   }
 }

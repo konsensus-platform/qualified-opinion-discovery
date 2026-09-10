@@ -1,0 +1,69 @@
+{
+  "modelName": "recorded-research-fixture-v1",
+  "turns": [
+    {
+      "reasoning": [
+        {
+          "kind": "assistant_visible_text",
+          "text": "Start from the instance's own on-topic terms so the query matches how this question is phrased, then read whatever looks like a first-hand statement rather than a summary of one."
+        }
+      ],
+      "toolCalls": [
+        {
+          "id": "call-search-1",
+          "name": "search",
+          "arguments": { "query": "public hearing community rules opinion" }
+        }
+      ],
+      "output": null
+    },
+    {
+      "reasoning": [
+        {
+          "kind": "assistant_visible_text",
+          "text": "Two results look on topic. Only opinions.example.test is fetchable under this instance's research policy, so open that one and keep the directory entry as an unopened lead."
+        }
+      ],
+      "toolCalls": [
+        {
+          "id": "call-fetch-1",
+          "name": "fetch",
+          "arguments": { "url": "https://opinions.example.test/statement" }
+        }
+      ],
+      "output": null
+    },
+    {
+      "reasoning": [
+        {
+          "kind": "assistant_visible_text",
+          "text": "The fetched page carries a first-hand statement I can quote exactly. The directory entry I could not open goes in as a lead with its snippet, marked unfetched, for the crawl stage to retrieve properly."
+        }
+      ],
+      "toolCalls": [],
+      "output": {
+        "findings": [
+          {
+            "url": "https://opinions.example.test/statement",
+            "title": "Fictional public hearing statement",
+            "claimedAuthorLabel": "Fictional Author One",
+            "quotedStatement": "In this fictional example, a hearing should be required.",
+            "relevance": "States a position on whether a hearing must happen before community rules change, which is what the question asks.",
+            "foundVia": ["public hearing community rules opinion"],
+            "fetchedByRuntime": true
+          },
+          {
+            "url": "https://directory.example.test/roster/fictional-author-two",
+            "title": "Roster entry for Fictional Author Two",
+            "claimedAuthorLabel": "Fictional Author Two",
+            "quotedStatement": "Directory listing that quotes a short remark about public hearings.",
+            "relevance": "A search snippet suggests a second position on the same question, but this instance may not fetch that host during research.",
+            "foundVia": ["public hearing community rules opinion"],
+            "fetchedByRuntime": true
+          }
+        ],
+        "unverifiedCoverageClaim": "One search and one fetch inside this instance's research policy. I did not open the directory host, did not look past the first page of results, and cannot say whether other public statements on this question exist."
+      }
+    }
+  ]
+}
