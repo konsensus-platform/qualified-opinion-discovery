@@ -97,10 +97,18 @@ export function openAiCompatibleResearchModel(
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(timeoutMs),
       });
-      const raw: unknown = await response.json();
+      // An error response is often not JSON at all. Read the body once as text
+      // so a gateway's HTML 502 reports the status rather than a parse failure.
+      const bodyText = await response.text();
+      let raw: unknown;
+      try {
+        raw = JSON.parse(bodyText);
+      } catch {
+        raw = { nonJsonBody: bodyText.slice(0, 2000) };
+      }
       if (!response.ok) {
         throw new Error(
-          `Research model returned HTTP ${response.status}: ${JSON.stringify(raw).slice(0, 500)}`,
+          `Research model returned HTTP ${response.status}: ${bodyText.slice(0, 500)}`,
         );
       }
       return { ...interpret(raw), raw };
@@ -160,10 +168,6 @@ function interpret(raw: unknown): Omit<ResearchModelResponse, "raw"> {
       text: message.reasoning,
     });
   }
-  const content = typeof message.content === "string" ? message.content : "";
-  if (content.trim())
-    reasoning.push({ kind: "assistant_visible_text", text: content });
-
   const toolCalls: ResearchToolCall[] = [];
   for (const entry of (message.tool_calls as unknown[] | undefined) ?? []) {
     const call = entry as {
@@ -179,11 +183,15 @@ function interpret(raw: unknown): Omit<ResearchModelResponse, "raw"> {
     );
   }
 
-  return {
-    reasoning,
-    toolCalls,
-    output: toolCalls.length ? null : parseOutput(content),
-  };
+  const content = typeof message.content === "string" ? message.content : "";
+  const output = toolCalls.length ? null : parseOutput(content);
+  // Visible text is reasoning only when it is not itself the final answer.
+  // Recording the answer twice would put the structured output into the
+  // reasoning trace, where a reader would mistake it for the model's thinking.
+  if (content.trim() && !output)
+    reasoning.push({ kind: "assistant_visible_text", text: content });
+
+  return { reasoning, toolCalls, output };
 }
 
 function parseOutput(content: string) {

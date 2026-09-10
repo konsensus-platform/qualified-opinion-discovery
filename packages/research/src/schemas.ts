@@ -54,7 +54,9 @@ export const researchReasoningSchema = z
       "provider_reasoning_summary",
       "assistant_visible_text",
     ]),
-    text: text(40_000),
+    // Generous on purpose. A reasoning model can return tens of thousands of
+    // characters, and a bound a real provider crosses would cost the whole run.
+    text: text(200_000),
   })
   .strict();
 

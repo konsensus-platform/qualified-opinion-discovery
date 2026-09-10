@@ -98,6 +98,59 @@ test("CLI runs research offline and reopens the stored transcript", () => {
   }
 });
 
+test("CLI research explains what is missing instead of half-running", () => {
+  const dir = mkdtempSync(join(tmpdir(), "discovery-cli-missing-"));
+  const path = join(dir, "missing.sqlite");
+  try {
+    const {
+      RESEARCH_MODEL_BASE_URL,
+      RESEARCH_MODEL_API_KEY,
+      RESEARCH_MODEL_NAME,
+      RESEARCH_SEARCH_ENDPOINT,
+      ...env
+    } = process.env;
+    const attempt = Bun.spawnSync(
+      [
+        process.execPath,
+        "apps/worker/src/cli.ts",
+        "research",
+        "--db",
+        path,
+        "--profile",
+        "examples/instances/open-forum-en.json",
+        "--question",
+        "public-hearings",
+      ],
+      { env },
+    );
+    expect(attempt.exitCode).toBe(1);
+    expect(attempt.stderr.toString()).toContain("RESEARCH_MODEL_BASE_URL");
+    // Nothing was written on the way to that failure.
+    const runs = Bun.spawnSync([
+      process.execPath,
+      "apps/worker/src/cli.ts",
+      "research-runs",
+      "--db",
+      path,
+    ]);
+    expect(JSON.parse(runs.stdout.toString())).toEqual([]);
+
+    const unknown = Bun.spawnSync([
+      process.execPath,
+      "apps/worker/src/cli.ts",
+      "research-show",
+      "--db",
+      path,
+      "--run",
+      crypto.randomUUID(),
+    ]);
+    expect(unknown.exitCode).toBe(1);
+    expect(unknown.stderr.toString()).toContain("Research run does not exist");
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
 test("CLI rejects unknown commands and missing required arguments", () => {
   const invalid = Bun.spawnSync([
     process.execPath,

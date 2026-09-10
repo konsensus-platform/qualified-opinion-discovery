@@ -3,11 +3,16 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadProfile } from "@discovery/config";
+import {
+  getResearchPolicy,
+  parseProfile,
+  loadProfile,
+} from "@discovery/config";
 import { SqliteDiscoveryStore } from "@discovery/store";
 import {
   buildResearchPrompt,
   fixtureSearchProvider,
+  loadReplayScript,
   replayResearchModel,
   researchPromptV1,
 } from "@discovery/research";
@@ -25,6 +30,15 @@ const searchIndex = await Bun.file(
 const recordedScript = await Bun.file(
   "fixtures/research/open-forum-en.replay.json",
 ).json();
+
+async function buildTranscript() {
+  const scratch = new SqliteDiscoveryStore(":memory:");
+  scratch.saveProfile(en);
+  const outcome = await run(scratch, recordedScript);
+  const transcript = scratch.getResearchRun(outcome.runId);
+  scratch.close();
+  return transcript;
+}
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -274,6 +288,329 @@ describe("findings reach the existing review pipeline and stop there", () => {
     expect(() => store.enqueueFromFinding(promoted.id)).toThrow(
       "already has a crawl job",
     );
+  });
+});
+
+describe("the checked-in replay fixture", () => {
+  test("validates as a replay script and drives a complete run", async () => {
+    const loaded = await loadReplayScript(
+      "fixtures/research/open-forum-en.replay.json",
+    );
+    expect(loaded.modelName).toBe("recorded-research-fixture-v1");
+    expect(loaded.turns).toHaveLength(3);
+    const store = setup();
+    const outcome = await run(store, loaded);
+    expect(outcome.status).toBe("finished");
+  });
+
+  test("a malformed script is refused when it is loaded, not mid-run", () => {
+    expect(() => replayResearchModel({ modelName: "x", turns: [] })).toThrow();
+    expect(() =>
+      replayResearchModel({
+        modelName: "x",
+        turns: [{ reasoning: [], toolCalls: [], output: { findings: [] } }],
+      }),
+    ).toThrow();
+  });
+});
+
+describe("instance research policy", () => {
+  test("a profile without a research block cannot be researched", () => {
+    const { research, ...withoutResearch } = en;
+    expect(() => getResearchPolicy(parseProfile(withoutResearch))).toThrow(
+      "does not configure research",
+    );
+  });
+
+  test("omitted limits take documented defaults", () => {
+    const policy = getResearchPolicy(
+      parseProfile({
+        ...en,
+        research: { crawler: en.research!.crawler },
+      }),
+    );
+    expect(policy).toMatchObject({
+      maxSteps: 8,
+      maxSearches: 10,
+      maxFetches: 10,
+      searchResultLimit: 5,
+    });
+  });
+
+  test("out-of-range limits and unknown keys are refused", () => {
+    for (const research of [
+      { crawler: en.research!.crawler, maxSteps: 0 },
+      { crawler: en.research!.crawler, maxFetches: 500 },
+      { crawler: en.research!.crawler, unexpected: true },
+      { crawler: { ...en.research!.crawler, allowedHosts: [] } },
+    ]) {
+      expect(() => parseProfile({ ...en, research })).toThrow();
+    }
+  });
+});
+
+describe("the prompt the model is given", () => {
+  const prompt = buildResearchPrompt({
+    profile: en,
+    question,
+    limits: { maxSteps: 6, maxSearches: 4, maxFetches: 4 },
+    fetchableHosts: en.research!.crawler.allowedHosts,
+  });
+
+  test("carries the question, every choice and the instance's own terms", () => {
+    expect(prompt.user).toContain(question.text);
+    for (const choice of question.choices) {
+      expect(prompt.user).toContain(choice.slug);
+      expect(prompt.user).toContain(choice.label);
+    }
+    for (const term of question.candidateTerms)
+      expect(prompt.user).toContain(term);
+    expect(prompt.user).toContain(en.qualificationLabel);
+  });
+
+  test("states the budgets and the hosts research may open", () => {
+    expect(prompt.system).toContain("opinions.example.test");
+    expect(prompt.system).toContain("6 turns");
+    expect(prompt.system).toContain("4 searches");
+    expect(prompt.system).toContain("4 fetches");
+  });
+
+  test("tells the model it does not decide the answer or the credential", () => {
+    expect(prompt.system).toContain("Do not choose an answer");
+    expect(prompt.system).toContain("not confirming anyone's credential");
+    expect(prompt.system).toContain("Do not answer from memory");
+  });
+});
+
+describe("agent loop edges", () => {
+  test("a reply with neither a tool call nor an answer is told so, once", async () => {
+    const store = setup();
+    const outcome = await run(
+      store,
+      script([
+        { reasoning: [], toolCalls: [], output: null },
+        answer([finding({ fetchedByRuntime: false })]),
+      ]),
+    );
+    expect(outcome.status).toBe("finished");
+    const messages = store.getResearchRun(outcome.runId).steps[1]!.request
+      .messages;
+    expect(messages.at(-1)!.role).toBe("user");
+    expect(messages.at(-1)!.content).toContain("neither a tool call nor");
+  });
+
+  test("a model that throws leaves a failed run with its steps intact", async () => {
+    const store = setup();
+    const failing = {
+      provider: "test-model",
+      name: "explodes-on-second-turn",
+      parameters: {},
+      calls: 0,
+      async respond() {
+        this.calls += 1;
+        if (this.calls > 1) throw new Error("provider connection reset");
+        return { reasoning: [], toolCalls: [], output: null, raw: {} };
+      },
+    };
+    const outcome = await runResearchJob(en, question.id, {
+      store,
+      model: failing,
+      search: fixtureSearchProvider(searchIndex),
+      transport: fixtureTransport().transport,
+    });
+    expect(outcome.status).toBe("failed");
+    expect(outcome.error).toBe("provider connection reset");
+    expect(store.getResearchRun(outcome.runId).steps).toHaveLength(1);
+  });
+
+  test("an exhausted search budget is reported to the model, not thrown", async () => {
+    const store = setup();
+    const searchTurn = {
+      reasoning: [],
+      toolCalls: [
+        { id: "s1", name: "search", arguments: { query: "public hearing" } },
+      ],
+      output: null,
+    };
+    const outcome = await run(
+      store,
+      script([
+        searchTurn,
+        searchTurn,
+        searchTurn,
+        searchTurn,
+        searchTurn,
+        answer([]),
+      ]),
+    );
+    const results = store
+      .getResearchRun(outcome.runId)
+      .steps.flatMap((step) => step.toolResults);
+    expect(results.filter((r) => r.ok)).toHaveLength(4);
+    expect(results.at(-1)!.error).toContain("budget");
+    expect(outcome.status).toBe("finished");
+  });
+
+  test("a robots exclusion stops a research fetch and is recorded", async () => {
+    const store = setup();
+    const outcome = await run(
+      store,
+      script([
+        {
+          reasoning: [],
+          toolCalls: [
+            {
+              id: "f1",
+              name: "fetch",
+              arguments: { url: "https://opinions.example.test/private/memo" },
+            },
+          ],
+          output: null,
+        },
+        answer([]),
+      ]),
+    );
+    const result = store.getResearchRun(outcome.runId).steps[0]!
+      .toolResults[0]!;
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Crawler refused source");
+  });
+
+  test("a search returns only entries the fixture index matches", async () => {
+    const store = setup();
+    const outcome = await run(
+      store,
+      script([
+        {
+          reasoning: [],
+          toolCalls: [
+            { id: "s1", name: "search", arguments: { query: "unrelated" } },
+          ],
+          output: null,
+        },
+        answer([]),
+      ]),
+    );
+    const result = store.getResearchRun(outcome.runId).steps[0]!
+      .toolResults[0]!;
+    const searched = result.result as {
+      provider: string;
+      results: { url: string; title: string; snippet: string }[];
+    };
+    expect(searched.provider).toBe("fixture-search");
+    expect(searched.results).toEqual([
+      {
+        url: "https://opinions.example.test/unrelated",
+        title: "Unrelated fictional page",
+        snippet: "A page with no bearing on the question.",
+      },
+    ]);
+  });
+});
+
+describe("a run is recorded whole or not at all", () => {
+  const verbose = (size: number) => ({
+    provider: "test-model",
+    name: "verbose",
+    parameters: {},
+    async respond() {
+      return {
+        reasoning: [
+          { kind: "provider_reasoning_text" as const, text: "x".repeat(size) },
+        ],
+        toolCalls: [],
+        output: null,
+        raw: {},
+      };
+    },
+  });
+
+  test("a long reasoning trace from a real provider is kept intact", async () => {
+    const store = setup();
+    const outcome = await runResearchJob(en, question.id, {
+      store,
+      model: verbose(50_000),
+      search: fixtureSearchProvider(searchIndex),
+      transport: fixtureTransport().transport,
+    });
+    const text = store.getResearchRun(outcome.runId).steps[0]!.reasoning[0]!
+      .text;
+    // Kept whole: a shortened trace would misrepresent what the provider said.
+    expect(text).toHaveLength(50_000);
+  });
+
+  test("a trace beyond the ceiling is refused with a plain reason, storing nothing", async () => {
+    const store = setup();
+    store.saveProfile(en);
+    expect(
+      runResearchJob(en, question.id, {
+        store,
+        model: verbose(300_000),
+        search: fixtureSearchProvider(searchIndex),
+        transport: fixtureTransport().transport,
+      }),
+    ).rejects.toThrow(
+      "cannot be recorded faithfully, so none of it was stored",
+    );
+    expect(store.listResearchRuns()).toEqual([]);
+  });
+});
+
+describe("storage refuses records it cannot place", () => {
+  test("a replay script that runs out of turns says so", async () => {
+    const store = setup();
+    const outcome = await run(
+      store,
+      script([{ reasoning: [], toolCalls: [], output: null }]),
+    );
+    expect(outcome.status).toBe("failed");
+    expect(outcome.error).toContain("no turn 1");
+  });
+
+  test("a run for an unsaved instance revision is refused", async () => {
+    const store = setup();
+    const transcript = await buildTranscript();
+    expect(() => store.saveResearchRun(transcript)).toThrow(
+      "Save the instance profile before its research runs",
+    );
+  });
+
+  test("a run naming a question the profile does not have is refused", async () => {
+    const store = setup();
+    store.saveProfile(en);
+    const transcript = await buildTranscript();
+    expect(() =>
+      store.saveResearchRun({ ...transcript, questionId: "not-a-question" }),
+    ).toThrow("not in this instance profile");
+  });
+
+  test("unknown run and finding identifiers are refused", () => {
+    const store = setup();
+    expect(() => store.getResearchRun(crypto.randomUUID())).toThrow(
+      "Research run does not exist",
+    );
+    expect(() => store.enqueueFromFinding(crypto.randomUUID())).toThrow(
+      "Research finding does not exist",
+    );
+    expect(store.listResearchFindings(crypto.randomUUID())).toEqual([]);
+  });
+
+  test("a changed profile at the same revision is refused", () => {
+    const store = setup();
+    store.saveProfile(en);
+    expect(() =>
+      store.saveProfile({ ...en, name: "Renamed without a new revision" }),
+    ).toThrow("immutable");
+  });
+
+  test("a stored transcript comes back exactly as it went in", async () => {
+    const store = setup();
+    const outcome = await run(store, recordedScript);
+    const stored = store.getResearchRun(outcome.runId);
+    expect(stored).toEqual(store.getResearchRun(outcome.runId));
+    expect(JSON.parse(JSON.stringify(stored))).toEqual(stored);
+    expect(stored.runId).toBe(outcome.runId);
+    expect(stored.model.provider).toBe("replay-fixture");
   });
 });
 

@@ -136,7 +136,7 @@ export async function runResearch(
   }
 
   const { acceptedFindings, droppedFindings } = adjudicate(output, fetched);
-  return researchTranscriptSchema.parse({
+  return parseTranscript({
     runId: input.runId ?? randomUUID(),
     instanceId: profile.id,
     profileRevision: profile.revision,
@@ -161,6 +161,25 @@ export async function runResearch(
     startedAt,
     finishedAt: now().toISOString(),
   } satisfies ResearchTranscript);
+}
+
+/**
+ * A transcript this schema cannot hold is not written down in a shortened form:
+ * a record of a run is only worth having if it is the run. The failure is
+ * reported plainly instead, so an operator sees a storable-record bug rather
+ * than a validation stack trace, and knows nothing was persisted.
+ */
+function parseTranscript(candidate: ResearchTranscript): ResearchTranscript {
+  const parsed = researchTranscriptSchema.safeParse(candidate);
+  if (parsed.success) return parsed.data;
+  const where = parsed.error.errors
+    .slice(0, 3)
+    .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+    .join("; ");
+  throw new Error(
+    "This research run cannot be recorded faithfully, so none of it was stored: " +
+      where,
+  );
 }
 
 /**
